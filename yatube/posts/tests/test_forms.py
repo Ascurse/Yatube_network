@@ -1,5 +1,4 @@
 import shutil
-import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.conf import settings
