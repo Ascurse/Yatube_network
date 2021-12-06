@@ -7,6 +7,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django import forms
 from django.core.cache import cache
+from http import HTTPStatus
 
 from posts.models import Post, Group, Comment, Follow
 
@@ -207,11 +208,11 @@ class PostPagesTest(TestCase):
            пользователем, появляется на странице
            поста
         """
-        post = Post.objects.filter().first()
+        post = Post.objects.filter(author=self.author).first()
         form_data = {
             'text': 'Тестовый комментарий',
         }
-        self.authorised_client.post(reverse(
+        post_comment = self.authorised_client.post(reverse(
             'posts:add_comment',
             args=[post.id]),
             data=form_data
@@ -219,6 +220,9 @@ class PostPagesTest(TestCase):
         get_latest_comment = (
             Comment.objects.filter().last()
         )
+        self.assertEqual(post_comment.status_code, HTTPStatus.FOUND)
+        self.assertEqual(post.id, get_latest_comment.post.id)
+        self.assertEqual(get_latest_comment.author, self.author)
         self.assertEqual(form_data['text'], get_latest_comment.text)
 
     def test_cache_index_page(self):
@@ -247,33 +251,61 @@ class PostPagesTest(TestCase):
             author_id=self.author,
             user=self.user2
         ).exists()
-        self.authorised_client2.get(reverse(
-            'posts:profile_unfollow',
-            args=[self.author.username])
-        )
-        after_unfollow = Follow.objects.all().filter(
-            author_id=self.author,
-            user=self.user2
-        ).exists()
         self.assertTrue(after_follow)
-        self.assertFalse(after_unfollow)
 
-    def test_follow_index(self):
-        """Новая запись появляется в подписках
-           и не появляется у не подписанных
+    def test_auth_user_can_unfollow(self):
+        """Проверка может ли авторизированный пользователь
+           отписываться от авторов
         """
-        unfollowed = self.authorised_client2.get(reverse(
-            'posts:follow_index'
-        ))
         self.authorised_client2.get(reverse(
             'posts:profile_follow',
             args=[self.author.username])
         )
+        after_follow = len(Follow.objects.all().filter(
+            author_id=self.author,
+            user=self.user2
+        ))
+        self.authorised_client2.get(reverse(
+            'posts:profile_unfollow',
+            args=[self.author.username])
+        )
+        after_unfollow = len(Follow.objects.all().filter(
+            author_id=self.author,
+            user=self.user2
+        ))
+        self.assertNotEqual(after_unfollow, after_follow)
+
+    def test_follow_index(self):
+        """Новая запись появляется в подписках"""
+        unfollowed = self.authorised_client2.get(reverse(
+            'posts:follow_index'
+        ))
+        Follow.objects.create(
+            author=self.author,
+            user=self.user2
+        )
         followed = self.authorised_client2.get(reverse(
             'posts:follow_index'
         ))
-        self.assertEqual(len(unfollowed.context['page_obj']), 0)
-        self.assertNotEqual(len(followed.context['page_obj']), 0)
+        self.assertEqual(followed.status_code, HTTPStatus.OK)
+        self.assertNotEqual(unfollowed.content, followed.content)
+
+    def test_follow_index_null(self):
+        """Новая запись не появляется у неподписанных"""
+        unfollowed_before_post = self.authorised_client2.get(reverse(
+            'posts:follow_index')
+        )
+        Post.objects.create(
+            group=PostPagesTest.group,
+            text="Новый пост от известного автора",
+            author=User.objects.get(username=self.author.username)
+        )
+        unfollowed_after_post = self.authorised_client2.get(reverse(
+            'posts:follow_index')
+        )
+        self.assertEqual(unfollowed_after_post.status_code, HTTPStatus.OK)
+        self.assertEqual(unfollowed_before_post.content,
+                         unfollowed_after_post.content)
 
 
 class PaginatorViewsTest(TestCase):

@@ -108,15 +108,12 @@ def post_edit(request, post_id):
 @login_required
 def add_comment(request, post_id):
     form = CommentForm(request.POST or None)
-    post = Post.objects.get(id=post_id)
-    if request.method == 'POST':
-        if form.is_valid():
-            comment = form.save(commit=False)
-            comment.author = request.user
-            comment.post = post
-            comment.save()
-            return redirect('posts:post_detail', post_id)
-        return render(request, 'post_detail.html', {'form': form})
+    post = get_object_or_404(Post, id=post_id)
+    if form.is_valid():
+        comment = form.save(commit=False)
+        comment.author = request.user
+        comment.post = post
+        comment.save()
     return redirect('posts:post_detail', post_id)
 
 
@@ -134,9 +131,7 @@ def profile_follow(request, username):
         user=request.user,
         author=follow
     ).exists()
-    if request.user.username == username:
-        return redirect('posts:profile', username=username)
-    if not already_following:
+    if request.user.username != follow and not already_following:
         Follow.objects.get_or_create(user=request.user, author=follow)
     return redirect('posts:profile', username=username)
 
